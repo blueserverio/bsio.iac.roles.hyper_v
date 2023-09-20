@@ -1,7 +1,7 @@
 ---
 - name: Wait for system to become reachable over WinRM
   ansible.builtin.wait_for_connection:
-    timeout: {{ wait_for_timeout }}
+    timeout: "{{ wait_for_timeout }}"
   
 - name: Install Hyper-V Feature
   win_optional_feature:
@@ -15,5 +15,5 @@
 
 - name: Wait for system to become reachable over WinRM
   ansible.builtin.wait_for_connection:
-    timeout: {{ wait_for_timeout }}
+    timeout: "{{ wait_for_timeout }}"
   when: win_optional_feature.reboot_required
