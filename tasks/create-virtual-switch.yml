@@ -1,0 +1,34 @@
+---
+- name: Create the '{{ hyper-v-virtual-switch-name }}' Switch
+  ansible.windows.win_powershell:
+    script: |
+      Import-Module Hyper-V;
+      $Ansible.Changed = $false
+      $sw = Get-VMSwitch -Name "{{ hyper-v-virtual-switch-name }}" -ErrorAction Ignore
+      if ($sw -eq $null){
+          $Ansible.Changed = $true  
+          New-VMSwitch -Name "{{ hyper-v-virtual-switch-name }}" -NetAdapterName "{{ hyper-v-physical-network-adapter-name }}"
+      } else {
+          $currentNetAdapterName = Get-NetAdapter -InterfaceDescription $sw.NetAdapterInterfaceDescription
+          if ($currentNetAdapterName.Name -ine "{{ hyper-v-physical-network-adapter-name }}"){
+              $Ansible.Changed = $true  
+              $sw | Set-VMSwitch -NetAdapterName "{{ hyper-v-physical-network-adapter-name }}"
+          }
+      }
+
+      $rvHashtable = @{
+        'Network Adapter Name' = '{{ hyper-v-physical-network-adapter-name }}'
+        'Switch Name' = '{{ hyper-v-virtual-switch-name }}'
+      }
+
+      $rv = New-Object -TypeName PSObject -Property $rvHashtable
+
+      return $rv
+
+
+  register: pwsh_output
+  
+- name: Output PWSH
+  debug:
+    var: pwsh_output
+  delegate_to: localhost
