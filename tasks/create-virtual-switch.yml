@@ -7,7 +7,13 @@
       $sw = Get-VMSwitch -Name "{{ hyper_v_virtual_switch_name }}" -ErrorAction Ignore
       if ($sw -eq $null){
           $Ansible.Changed = $true  
-          New-VMSwitch -Name "{{ hyper_v_virtual_switch_name }}" -NetAdapterName "{{ hyper_v_physical_network_adapter_name }}"
+          try {
+            New-VMSwitch -Name "{{ hyper_v_virtual_switch_name }}" -NetAdapterName "{{ hyper_v_physical_network_adapter_name }}" -ErrorAction Stop
+          } catch {
+            $Ansible.Changed = $false
+            $Ansible.Failed = $true
+            return "Failed to create new switch: $_"
+          }
       } else {
           $currentNetAdapterName = Get-NetAdapter -InterfaceDescription $sw.NetAdapterInterfaceDescription
           if ($currentNetAdapterName.Name -ine "{{ hyper_v_physical_network_adapter_name }}"){
@@ -27,6 +33,8 @@
 
 
   register: pwsh_output
+  async: 30
+  poll: 3
   
 - name: Output PWSH
   debug:
