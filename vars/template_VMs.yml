@@ -1,0 +1,7 @@
+---
+vms: 
+  - name: Template-01
+    cpu: 2
+    momory: 1024MB
+
+    network_switch: "{{ hyper_v_virtual_switch_name }}"
