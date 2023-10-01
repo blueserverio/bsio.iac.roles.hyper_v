@@ -1,0 +1,155 @@
+---
+- name: Create {{ item.key }} VM ({{ item.value.os_type }})
+  ansible.windows.win_powershell:
+    script: |
+      Import-Module Hyper-V;
+      $Ansible.Changed = $false
+
+      $currentVM = Get-VM -Name {{ item.key }}
+      if ($currentVM -eq $null) {
+        $Ansible.Changed = $true
+        $Params = @{
+          Name = '{{ item.key }}'
+          SwitchName = '{{ hyper_v_virtual_switch_name }}'
+          Generation = '{{ item.value.generation }}'
+          NewVHDPath = '{{ item.value.hdd_path }}'
+          NewVHDSizeBytes = {{ item.value.hdd_size }}
+        }       
+        $VM = New-VM @Params
+        $DVD = Add-VMDvdDrive -VMName $VM.VMName -Path "{{ item.value.iso_path }}"
+
+        Set-VMProcessor {{ item.key }} -Count {{ item.value.cpu }}
+
+        # Enable TPM
+        $HGOwner = Get-HgsGuardian UntrustedGuardian
+        $KeyProtector = New-HgsKeyProtector -Owner $HGOwner -AllowUntrustedRoot
+        Set-VMKeyProtector -VMName {{ item.key }} -KeyProtector $KeyProtector.RawData
+        Enable-VMTPM -VMName {{ item.key }}
+        Set-VMFirmware -VMName {{ item.key }} -BootOrder $(Get-VMDvdDrive -VMName {{ item.key }}), $(Get-VMHardDiskDrive -VMName {{ item.key }}), $(Get-VMNetworkAdapter -VMName {{ item.key }})
+
+      } else {
+        $currentSwitchName = $currentVM | Select NetworkAdapters -ExpandProperty NetworkAdapters | Select SwitchName -ExpandProperty SwitchName
+        $currentGeneration = ($currentVM | select VirtualMachineSubType -ExpandProperty VirtualMachineSubType).ToString().Replace("Generation", "")
+        $currentHDDPath = $currentVM | Select HardDrives -ExpandProperty HardDrives | Select Path -ExpandProperty Path
+        $currentHDDSizeBytes = ((Get-VHD -Path ($currentVM | Select HardDrives -ExpandProperty HardDrives | Select Path -ExpandProperty Path) | select Size -ExpandProperty Size) / 1Gb).ToString()+"GB"
+        $currentProcessorCount = $currentVM | select ProcessorCount -ExpandProperty ProcessorCount
+      }
+
+- name: Start {{ item.key }} VM
+  ansible.windows.win_powershell:
+    script: |
+      Import-Module Hyper-V;
+      $Ansible.Changed = $false
+      
+      $VM = Get-VM -Name {{ item.key }}
+
+      if ($VM.State -eq "Off"){
+        $Ansible.Changed = $true
+        Start-VM -Name {{ item.key }}
+      }
+
+- name: Get {{ item.key }} VM IP
+  ansible.windows.win_powershell:
+    script: |
+      Import-Module Hyper-V;
+      $Ansible.Changed = $false
+      
+      $VM = Get-VM -Name {{ item.key }}
+
+      $ipAddress = $VM | select NetworkAdapters -ExpandProperty NetworkAdapters | select IPAddresses -ExpandProperty IPAddresses
+      
+      if ($ipAddress -eq $null){
+        $Ansible.Failed = $true
+      } else {
+        return $ipAddress
+      }
+
+  register: lsresult
+  until: "lsresult is not failed"
+  retries: 60
+  delay: 10
+
+- name: Set IP for {{ item.key }}
+  set_fact:
+    current_ip: '{{ lsresult.output[0] }}'
+
+- set_fact:
+    vms: "{{ vms | combine(new_item, recursive=true) }}"
+  vars:
+    new_item: "{ '{{ item.key }}': { 'ipAddress': '{{ current_ip }}' } }"
+  with_dict: "{{ vms }}"
+
+- name: Add new hosts to inventory
+  ansible.builtin.add_host:
+    hostname: '{{ current_ip }}'
+    ansible_host: '{{ current_ip }}'
+    ansible_user: Ansible
+    ansible_password: Password1!
+    ansible_port: 5986
+    ansible_connection: winrm
+    ansible_winrm_scheme: https
+    ansible_winrm_server_cert_validation: ignore
+    ansible_winrm_kerberos_delegation: true
+  
+- name: Wait for {{ item.value.os_type }} system ({{ current_ip }}) to become reachable over WinRM
+  ansible.builtin.wait_for_connection:
+    timeout: "{{ wait_for_timeout }}"
+  delegate_to: '{{ current_ip }}'
+
+- name: Update Windows
+  win_updates:
+    category_names:
+      - CriticalUpdates
+      - DefinitionUpdates
+      - SecurityUpdates
+      - Updates
+    reboot: yes
+    reboot_timeout: "{{ wait_for_timeout }}"
+  when: item.value.os_type == 'windows'
+  delegate_to: '{{ current_ip }}'
+  vars: 
+    ansible_user: Ansible
+    ansible_password: Password1!
+    ansible_port: 5986
+    ansible_connection: winrm
+    ansible_winrm_scheme: https
+    ansible_winrm_server_cert_validation: ignore
+    ansible_winrm_connection_timeout: 1200 
+    ansible_winrm_kerberos_delegation: true
+
+  
+  # Run Sysprep here
+- name: unattend.xml
+  win_copy:
+    src: "{{ role_path }}/files/unattend.xml"
+    dest: '{{ sysprep_path | win_dirname }}\unattend.xml'
+  when: item.value.os_type == 'windows'
+  delegate_to: '{{ current_ip }}'
+  vars: 
+    ansible_user: Ansible
+    ansible_password: Password1!
+    ansible_port: 5986
+    ansible_connection: winrm
+    ansible_winrm_scheme: https
+    ansible_winrm_server_cert_validation: ignore
+    ansible_winrm_connection_timeout: 1200 
+    ansible_winrm_kerberos_delegation: true
+
+- name: Sysprep {{ item.key }} ({{ current_ip }})
+  ansible.windows.win_powershell:
+    script: |
+      Start-Process -FilePath "{{ sysprep_path }}" -WorkingDirectory "{{ sysprep_path | win_dirname }}" -Wait -WindowStyle Maximized -ArgumentList "/oobe /mode:vm /generalize /shutdown /unattend:unattend.xml"
+  when: item.value.os_type == 'windows'
+  delegate_to: '{{ current_ip }}'
+  vars: 
+    ansible_user: Ansible
+    ansible_password: Password1!
+    ansible_port: 5986
+    ansible_connection: winrm
+    ansible_winrm_scheme: https
+    ansible_winrm_server_cert_validation: ignore
+    ansible_winrm_connection_timeout: 1200 
+    ansible_winrm_kerberos_delegation: true
+
+
+  # Create Template

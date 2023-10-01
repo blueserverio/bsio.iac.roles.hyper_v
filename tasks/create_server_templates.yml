@@ -1,0 +1,9 @@
+--- 
+- name: Include vm env var
+  include_vars:
+    dir: vars
+    extensions: [yml]
+
+- name: Create Individual Template VMs
+  include_tasks: create_individual_server_template.yml
+  with_dict: "{{ vms }}"
