@@ -151,5 +151,18 @@
     ansible_winrm_connection_timeout: 1200 
     ansible_winrm_kerberos_delegation: true
 
+- name: Ensure VM Template Directory Exists
+  win_file:
+    path: "{{ vm_template_path }}"
+    state: directory
 
-  # Create Template
+- name: Check if {{ item.key }} is already a template
+  win_stat:
+    path: "{{ vm_template_path }}\\{{ item.key }}"
+  register: vm_template_file_path
+
+- name: Export VM ({{ item.key }}) to use as a template. 
+  ansible.windows.win_powershell:
+    script: |
+      Export-VM -Name {{ item.key }} -Path "{{ vm_template_path }}"
+  when: vm_template_file_path is undefined
