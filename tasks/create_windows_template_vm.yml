@@ -1,0 +1,67 @@
+---
+- name: Add new Windows hosts to inventory
+  ansible.builtin.add_host:
+    hostname: '{{ current_ip }}'
+    ansible_host: '{{ current_ip }}'
+    ansible_user: Ansible
+    ansible_password: Password1!
+    ansible_port: 5986
+    ansible_connection: winrm
+    ansible_winrm_scheme: https
+    ansible_winrm_server_cert_validation: ignore
+    ansible_winrm_kerberos_delegation: true
+
+- name: Wait for Windows system ({{ current_ip }}) to become reachable over WinRM
+  ansible.builtin.wait_for_connection:
+    timeout: "{{ wait_for_timeout }}"
+  delegate_to: '{{ current_ip }}'    
+
+- name: Update Windows
+  win_updates:
+    category_names:
+      - CriticalUpdates
+      - DefinitionUpdates
+      - SecurityUpdates
+      - Updates
+    reboot: yes
+    reboot_timeout: "{{ wait_for_timeout }}"
+  delegate_to: '{{ current_ip }}'
+
+   # Windows Sysprep
+- name: unattend.xml
+  win_copy:
+    src: "{{ role_path }}/files/unattend.xml"
+    dest: '{{ sysprep_path | win_dirname }}\unattend.xml'
+  delegate_to: '{{ current_ip }}'
+
+- name: Sysprep {{ item.key }} ({{ current_ip }})
+  ansible.windows.win_powershell:
+    script: |
+      Start-Process -FilePath "{{ sysprep_path }}" -WorkingDirectory "{{ sysprep_path | win_dirname }}" -Wait -WindowStyle Maximized -ArgumentList "/oobe /mode:vm /generalize /shutdown /unattend:unattend.xml"
+  delegate_to: '{{ current_ip }}'
+  ignore_errors: true
+
+- name: Get Post-Sysprep VM status
+  ansible.windows.win_powershell:
+    script: |
+      Import-Module Hyper-V;
+      $Ansible.Changed = $false
+
+      $VM = Get-VM -Name {{ item.key }}
+
+      $Ansible.Result = $VM.State
+  register: postSysprepVM_State
+  retries: 3
+  delay: 3
+  until: postSysprepVM_State.result.String == 'Off'
+
+- name: Debug postSysprepVM_State value
+  debug:
+    var: postSysprepVM_State    
+
+- name: Fail if postSysprepVM_State.result.String is defined and not "Off"
+  fail:
+    msg: "The value of postSysprepVM_State.result.String is not 'Off'"
+  when: 
+    - "'String' in postSysprepVM_State.result"
+    - "postSysprepVM_State.result.String != 'Off'"

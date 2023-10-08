@@ -79,34 +79,10 @@
     new_item: "{ '{{ item.key }}': { 'ipAddress': '{{ current_ip }}' } }"
   with_dict: "{{ vms }}"
 
-- name: Add new hosts to inventory
-  ansible.builtin.add_host:
-    hostname: '{{ current_ip }}'
-    ansible_host: '{{ current_ip }}'
-    ansible_user: Ansible
-    ansible_password: Password1!
-    ansible_port: 5986
-    ansible_connection: winrm
-    ansible_winrm_scheme: https
-    ansible_winrm_server_cert_validation: ignore
-    ansible_winrm_kerberos_delegation: true
-  
-- name: Wait for {{ item.value.os_type }} system ({{ current_ip }}) to become reachable over WinRM
-  ansible.builtin.wait_for_connection:
-    timeout: "{{ wait_for_timeout }}"
-  delegate_to: '{{ current_ip }}'
-
-- name: Update Windows
-  win_updates:
-    category_names:
-      - CriticalUpdates
-      - DefinitionUpdates
-      - SecurityUpdates
-      - Updates
-    reboot: yes
-    reboot_timeout: "{{ wait_for_timeout }}"
+- name: Import Windows Specific Tasks
+  include_tasks: 
+    file: create_windows_template_vm.yml
   when: item.value.os_type == 'windows'
-  delegate_to: '{{ current_ip }}'
   vars: 
     ansible_user: Ansible
     ansible_password: Password1!
@@ -117,40 +93,18 @@
     ansible_winrm_connection_timeout: 1200 
     ansible_winrm_kerberos_delegation: true
 
-  
-  # Run Sysprep here
-- name: unattend.xml
-  win_copy:
-    src: "{{ role_path }}/files/unattend.xml"
-    dest: '{{ sysprep_path | win_dirname }}\unattend.xml'
-  when: item.value.os_type == 'windows'
-  delegate_to: '{{ current_ip }}'
-  vars: 
-    ansible_user: Ansible
+- name: Import Linux Specific Tasks
+  include_tasks: 
+    file: create_linux_template_vm.yml
+  when: item.value.os_type == 'linux'
+  vars:
+    ansible_user: ansible
     ansible_password: Password1!
-    ansible_port: 5986
-    ansible_connection: winrm
-    ansible_winrm_scheme: https
-    ansible_winrm_server_cert_validation: ignore
-    ansible_winrm_connection_timeout: 1200 
-    ansible_winrm_kerberos_delegation: true
+    ansible_port: 22
+    ansible_connection: ssh
 
-- name: Sysprep {{ item.key }} ({{ current_ip }})
-  ansible.windows.win_powershell:
-    script: |
-      Start-Process -FilePath "{{ sysprep_path }}" -WorkingDirectory "{{ sysprep_path | win_dirname }}" -Wait -WindowStyle Maximized -ArgumentList "/oobe /mode:vm /generalize /shutdown /unattend:unattend.xml"
-  when: item.value.os_type == 'windows'
-  delegate_to: '{{ current_ip }}'
-  vars: 
-    ansible_user: Ansible
-    ansible_password: Password1!
-    ansible_port: 5986
-    ansible_connection: winrm
-    ansible_winrm_scheme: https
-    ansible_winrm_server_cert_validation: ignore
-    ansible_winrm_connection_timeout: 1200 
-    ansible_winrm_kerberos_delegation: true
 
+# Create the templates
 - name: Ensure VM Template Directory Exists
   win_file:
     path: "{{ vm_template_path }}"
@@ -164,5 +118,12 @@
 - name: Export VM ({{ item.key }}) to use as a template. 
   ansible.windows.win_powershell:
     script: |
-      Export-VM -Name {{ item.key }} -Path "{{ vm_template_path }}"
-  when: vm_template_file_path is undefined
+      try {
+        $Ansible.Changed = $false
+        Export-VM -Name {{ item.key }} -Path "{{ vm_template_path }}"
+        $Ansible.Changed = $true
+      } catch {
+        $Ansible.Failed = $true
+        return "Error exporting template $_"
+      }
+  when: not vm_template_file_path.stat.exists
