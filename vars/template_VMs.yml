@@ -1,15 +1,15 @@
 ---
 vms: 
-  WindowsTemplate-01:
-    os_type: windows
-    generation: 2
+  linux-template-01:
+    os_type: linux
+    generation: 1
     cpu: 2
     memory: 1024MB
     ipAddress: 
-    hdd_path: 'C:\ProgramData\Microsoft\Windows\Virtual Hard Disks\WindowsTemplate-01.vhdx'
+    hdd_path: 'C:\ProgramData\Microsoft\Windows\Virtual Hard Disks\linux-template-01.vhdx'
     hdd_size: 127GB
     network_switch: "{{ hyper_v_virtual_switch_name }}"
-    iso_path: '{{ windows_iso_output_path }}'
+    iso_path: '{{ linux_iso_output_path }}'
   WindowsTemplate-02:
     os_type: windows
     generation: 2
