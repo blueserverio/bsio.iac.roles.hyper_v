@@ -1,0 +1,4 @@
+---
+- name: Provision VM from Templates
+  debug:
+    msg: "Prov here."

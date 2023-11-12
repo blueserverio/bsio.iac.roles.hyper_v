@@ -1,4 +1,9 @@
 ---
+- name: Ensure VM Directory Exists
+  win_file:
+    path: "{{ vm_path }}"
+    state: directory
+
 - name: Create {{ item.key }} VM ({{ item.value.os_type }})
   ansible.windows.win_powershell:
     script: |
@@ -7,9 +12,9 @@
 
       $currentVM = Get-VM -Name {{ item.key }}
       if ($currentVM -eq $null) {
-        $Ansible.Changed = $true
         $Params = @{
           Name = '{{ item.key }}'
+          Path = '{{ item.value.vm_path }}'
           SwitchName = '{{ hyper_v_virtual_switch_name }}'
           Generation = '{{ item.value.generation }}'
           NewVHDPath = '{{ item.value.hdd_path }}'
@@ -26,6 +31,8 @@
         Set-VMKeyProtector -VMName {{ item.key }} -KeyProtector $KeyProtector.RawData
         Enable-VMTPM -VMName {{ item.key }}
         Set-VMFirmware -VMName {{ item.key }} -BootOrder $(Get-VMDvdDrive -VMName {{ item.key }}), $(Get-VMHardDiskDrive -VMName {{ item.key }}), $(Get-VMNetworkAdapter -VMName {{ item.key }})
+
+        $Ansible.Changed = $true
 
       } else {
         $currentSwitchName = $currentVM | Select NetworkAdapters -ExpandProperty NetworkAdapters | Select SwitchName -ExpandProperty SwitchName
