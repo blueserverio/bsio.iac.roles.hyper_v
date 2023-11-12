@@ -1,3 +1,2 @@
 ---
 sysprep_path: 'C:\windows\system32\sysprep\sysprep.exe'
-vm_template_path: 'C:\ProgramData\Microsoft\Windows\Virtual Machine Templates\'
