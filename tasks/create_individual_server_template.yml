@@ -1,9 +1,4 @@
 ---
-- name: Ensure VM Directory Exists
-  win_file:
-    path: "{{ vm_path }}"
-    state: directory
-
 - name: Create {{ item.key }} VM ({{ item.value.os_type }})
   ansible.windows.win_powershell:
     script: |
@@ -12,6 +7,8 @@
 
       $currentVM = Get-VM -Name {{ item.key }}
       if ($currentVM -eq $null) {
+        New-Item -ItemType Directory '{{ item.value.vm_path }}'
+
         $Params = @{
           Name = '{{ item.key }}'
           Path = '{{ item.value.vm_path }}'
